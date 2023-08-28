@@ -46,12 +46,12 @@ fn assert_equals(img: &[u8], w2: usize, h2: usize, expected_filename: &str) {
 fn test_filter_init() {
     let _ = resize::new(3, 3, 25, 25, RGBF64, Point);
     let _ = resize::new(10, 10, 5, 5, RGBF64, Point);
-    let _ = resize::new(3, 3, 25, 25, RGBF32, Triangle);
-    let _ = resize::new(10, 10, 5, 5, RGBF32, Triangle);
+    let _ = resize::new(3, 3, 25, 25, RGBfpN, Triangle);
+    let _ = resize::new(10, 10, 5, 5, RGBfpN, Triangle);
     let _ = resize::new(3, 3, 25, 25, RGBAF64, Catrom);
     let _ = resize::new(10, 10, 5, 5, RGBAF64, Catrom);
-    let _ = resize::new(3, 3, 25, 25, RGBAF32, Mitchell);
-    let _ = resize::new(10, 10, 5, 5, RGBAF32, Mitchell);
+    let _ = resize::new(3, 3, 25, 25, RGBAfpN, Mitchell);
+    let _ = resize::new(10, 10, 5, 5, RGBAfpN, Mitchell);
     let _ = resize::new(3, 4, 25, 99, GrayF64, Lanczos3);
     let _ = resize::new(99, 70, 5, 1, GrayF64, Lanczos3);
 }

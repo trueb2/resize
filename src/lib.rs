@@ -29,10 +29,12 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::f32;
 use std::fmt;
 use std::num::NonZeroUsize;
 
+use crate::px::fpN;
+
+use num_traits::Float;
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
@@ -61,8 +63,8 @@ pub enum Type {
 
 /// Resampling filter.
 pub struct Filter {
-    kernel: Box<dyn Fn(f32) -> f32>,
-    support: f32,
+    kernel: Box<dyn Fn(fpN) -> fpN>,
+    support: fpN,
 }
 
 impl Filter {
@@ -72,38 +74,38 @@ impl Filter {
     ///
     /// ```
     /// use resize::Filter;
-    /// fn kernel(x: f32) -> f32 { f32::max(1.0 - x.abs(), 0.0) }
+    /// fn kernel(x: fpN) -> fpN { fpN::max(1.0 - x.abs(), 0.0) }
     /// let filter = Filter::new(Box::new(kernel), 1.0);
     /// ```
     #[must_use]
     #[inline(always)]
-    pub fn new(kernel: Box<dyn Fn(f32) -> f32>, support: f32) -> Self {
+    pub fn new(kernel: Box<dyn Fn(fpN) -> fpN>, support: fpN) -> Self {
         Self { kernel, support }
     }
 
     /// Helper to create Cubic filter with custom B and C parameters.
     #[must_use]
     #[deprecated(note = "use Type enum")]
-    pub fn new_cubic(b: f32, c: f32) -> Self {
-        Self::new(Box::new(move |x| cubic_bc(b, c, x)), 2.0)
+    pub fn new_cubic(b: fpN, c: fpN) -> Self {
+        Self::new(Box::new(move |x| cubic_bc(b.to_f32(), c.to_f32(), x.to_f32())), fpN::from_f32(2.0))
     }
 
     /// Helper to create Lanczos filter with custom radius.
     #[must_use]
     #[deprecated(note = "use Type enum")]
-    pub fn new_lanczos(radius: f32) -> Self {
+    pub fn new_lanczos(radius: fpN) -> Self {
         Self::new(Box::new(move |x| lanczos(radius, x)), radius)
     }
 }
 
 #[inline]
-fn point_kernel(_: f32) -> f32 {
-    1.0
+fn point_kernel(_: fpN) -> fpN {
+    fpN::ONE
 }
 
 #[inline]
-fn triangle_kernel(x: f32) -> f32 {
-    f32::max(1.0 - x.abs(), 0.0)
+fn triangle_kernel(x: fpN) -> fpN {
+    fpN::max(fpN::ONE- x.abs(), fpN::ZERO)
 }
 
 // Taken from
@@ -111,7 +113,7 @@ fn triangle_kernel(x: f32) -> f32 {
 // TODO(Kagami): Could be optimized for known B and C, see e.g.
 // https://github.com/sekrit-twc/zimg/blob/1a606c0/src/zimg/resize/filter.cpp#L149
 #[inline(always)]
-fn cubic_bc(b: f32, c: f32, x: f32) -> f32 {
+fn cubic_bc(b: f32, c: f32, x: f32) -> fpN {
     let a = x.abs();
     let k = if a < 1.0 {
         (12.0 - 9.0 * b - 6.0 * c) * a.powi(3) +
@@ -125,25 +127,25 @@ fn cubic_bc(b: f32, c: f32, x: f32) -> f32 {
     } else {
         0.0
     };
-    k / 6.0
+    fpN::from_f32(k / 6.0)
 }
 
 #[inline]
-fn sinc(x: f32) -> f32 {
-    if x == 0.0 {
-        1.0
+fn sinc(x: fpN) -> fpN {
+    if x == fpN::ZERO {
+        fpN::ONE
     } else {
-        let a = x * f32::consts::PI;
+        let a = x * fpN::PI;
         a.sin() / a
     }
 }
 
 #[inline(always)]
-fn lanczos(taps: f32, x: f32) -> f32 {
+fn lanczos(taps: fpN, x: fpN) -> fpN {
     if x.abs() < taps {
         sinc(x) * sinc(x / taps)
     } else {
-        0.0
+        fpN::ZERO
     }
 }
 
@@ -152,7 +154,7 @@ fn lanczos(taps: f32, x: f32) -> f32 {
 #[allow(non_upper_case_globals)]
 pub mod Pixel {
     use std::marker::PhantomData;
-    use crate::formats;
+    use crate::{formats, px::fpN};
 
     /// Grayscale, 8-bit.
     #[cfg_attr(docsrs, doc(alias = "Grey"))]
@@ -161,7 +163,7 @@ pub mod Pixel {
     pub const Gray16: formats::Gray<u16, u16> = formats::Gray(PhantomData);
 
     /// Grayscale, 32-bit float
-    pub const GrayF32: formats::Gray<f32, f32> = formats::Gray(PhantomData);
+    pub const GrayfpN: formats::Gray<fpN, fpN> = formats::Gray(PhantomData);
     /// Grayscale, 64-bit float
     pub const GrayF64: formats::Gray<f64, f64> = formats::Gray(PhantomData);
 
@@ -192,15 +194,15 @@ pub mod Pixel {
     /// Clears "dirty alpha". Use this for high-quality scaling of regular uncorrelated (not premultiplied) RGBA bitmaps.
     pub const RGBA16P: formats::RgbaPremultiply<u16, u16> = formats::RgbaPremultiply(PhantomData);
 
-    /// RGB, 32-bit float per component. This is pretty efficient, since resizing uses f32 internally.
-    pub const RGBF32: formats::Rgb<f32, f32> = formats::Rgb(PhantomData);
+    /// RGB, 32-bit float per component. This is pretty efficient, since resizing uses fpN internally.
+    pub const RGBfpN: formats::Rgb<fpN, fpN> = formats::Rgb(PhantomData);
     /// RGB, 64-bit double per component.
     pub const RGBF64: formats::Rgb<f64, f64> = formats::Rgb(PhantomData);
 
-    /// RGBA, 32-bit float per component. This is pretty efficient, since resizing uses f32 internally.
+    /// RGBA, 32-bit float per component. This is pretty efficient, since resizing uses fpN internally.
     ///
     /// Components are scaled independently (no premultiplication applied)
-    pub const RGBAF32: formats::Rgba<f32, f32> = formats::Rgba(PhantomData);
+    pub const RGBAfpN: formats::Rgba<fpN, fpN> = formats::Rgba(PhantomData);
     /// RGBA, 64-bit double per component.
     ///
     /// Components are scaled independently (no premultiplication applied)
@@ -262,10 +264,10 @@ impl Scale {
 #[derive(Debug, Clone)]
 struct CoeffsLine {
     start: usize,
-    coeffs: Arc<[f32]>,
+    coeffs: Arc<[fpN]>,
 }
 
-type DynCallback<'a> = &'a dyn Fn(f32) -> f32;
+type DynCallback<'a> = &'a dyn Fn(fpN) -> fpN;
 
 impl Scale {
     pub fn new(source_width: usize, source_heigth: usize, dest_width: usize, dest_height: usize, filter_type: Type) -> Result<Self> {
@@ -275,11 +277,11 @@ impl Scale {
             return Err(Error::InvalidParameters);
         }
         let filter = match filter_type {
-            Type::Point => (&point_kernel as DynCallback, 0.0_f32),
-            Type::Triangle => (&triangle_kernel as DynCallback, 1.0),
-            Type::Catrom => ((&|x| cubic_bc(0.0, 0.5, x)) as DynCallback, 2.0),
-            Type::Mitchell => ((&|x| cubic_bc(1.0/3.0, 1.0/3.0, x)) as DynCallback, 2.0),
-            Type::Lanczos3 => ((&|x| lanczos(3.0, x)) as DynCallback, 3.0),
+            Type::Point => (&point_kernel as DynCallback, fpN::ZERO),
+            Type::Triangle => (&triangle_kernel as DynCallback, fpN::ONE),
+            Type::Catrom => ((&|x: fpN| cubic_bc(0.0, 0.5, x.to_f32())) as DynCallback, fpN::from_f32(2.0)),
+            Type::Mitchell => ((&|x: fpN| cubic_bc(1.0/3.0, 1.0/3.0, x.to_f32())) as DynCallback, fpN::from_f32(2.0)),
+            Type::Lanczos3 => ((&|x: fpN| lanczos(fpN::from_f32(3.0), x)) as DynCallback, fpN::from_f32(3.0)),
             Type::Custom(ref f) => (&f.kernel as DynCallback, f.support),
         };
 
@@ -304,11 +306,11 @@ impl Scale {
         })
     }
 
-    fn calc_coeffs(s1: NonZeroUsize, s2: usize, (kernel, support): (&dyn Fn(f32) -> f32, f32), recycled_coeffs: &mut HashMap<(usize, [u8; 4], [u8; 4]), Arc<[f32]>>) -> Result<Vec<CoeffsLine>> {
+    fn calc_coeffs(s1: NonZeroUsize, s2: usize, (kernel, support): (&dyn Fn(fpN) -> fpN, fpN), recycled_coeffs: &mut HashMap<(usize, [u8; 2], [u8; 2]), Arc<[fpN]>>) -> Result<Vec<CoeffsLine>> {
         let ratio = s1.get() as f64 / s2 as f64;
         // Scale the filter when downsampling.
         let filter_scale = ratio.max(1.);
-        let filter_radius = (support as f64 * filter_scale).ceil();
+        let filter_radius = (support.to_f64() * filter_scale).ceil();
         let mut res = Vec::new();
         res.try_reserve_exact(s2)?;
         for x2 in 0..s2 {
@@ -317,12 +319,14 @@ impl Scale {
             let start = start.min(s1.get() as isize - 1).max(0) as usize;
             let end = (x1 + filter_radius).floor() as isize;
             let end = (end.min(s1.get() as isize - 1).max(0) as usize).max(start);
-            let sum: f64 = (start..=end).map(|i| (kernel)(((i as f64 - x1) / filter_scale) as f32) as f64).sum();
-            let key = (end - start, (filter_scale as f32).to_ne_bytes(), (start as f32 - x1 as f32).to_ne_bytes());
+            let sum: f64 = (start..=end).map(|i| {
+                (kernel)(fpN::from_f64((i as f64 - x1) / filter_scale)).to_f64()
+            }).sum();
+            let key = (end - start, (fpN::from_f64(filter_scale)).to_ne_bytes(), (fpN::from_f64(start as f64) - fpN::from_f64(x1)).to_ne_bytes());
             let coeffs = if let Some(k) = recycled_coeffs.get(&key) { k.clone() } else {
                 let tmp = (start..=end).map(|i| {
-                    let n = ((i as f64 - x1) / filter_scale) as f32;
-                    ((kernel)(n.min(support).max(-support)) as f64 / sum) as f32
+                    let n = fpN::from_f64((i as f64 - x1) / filter_scale);
+                    (kernel)(n.min(support).max(-support) / fpN::from_f64(sum))
                 }).collect::<Arc<[_]>>();
                 recycled_coeffs.try_reserve(1)?;
                 recycled_coeffs.insert(key, tmp.clone());
@@ -545,14 +549,14 @@ fn oom() {
 
 #[test]
 fn niche() {
-    assert_eq!(std::mem::size_of::<Resizer<formats::Gray<f32, f32>>>(), std::mem::size_of::<Option<Resizer<formats::Gray<f32, f32>>>>());
+    assert_eq!(std::mem::size_of::<Resizer<formats::Gray<fpN, fpN>>>(), std::mem::size_of::<Option<Resizer<formats::Gray<fpN, fpN>>>>());
 }
 
 #[test]
 fn zeros() {
     assert!(new(1, 1, 1, 0, Pixel::Gray16, Type::Triangle).is_err());
     assert!(new(1, 1, 0, 1, Pixel::Gray8, Type::Catrom).is_err());
-    assert!(new(1, 0, 1, 1, Pixel::RGBAF32, Type::Lanczos3).is_err());
+    assert!(new(1, 0, 1, 1, Pixel::RGBAfpN, Type::Lanczos3).is_err());
     assert!(new(0, 1, 1, 1, Pixel::RGB8, Type::Mitchell).is_err());
 }
 
@@ -607,11 +611,13 @@ fn resize_stride() {
 fn resize_float() {
     use rgb::FromSlice;
 
-    let mut r = new(2, 2, 3, 4, Pixel::GrayF32, Type::Triangle).unwrap();
-    let mut dst = vec![0.; 12];
+    let mut r = new(2, 2, 3, 4, Pixel::GrayfpN, Type::Triangle).unwrap();
+    let mut dst = vec![fpN::ZERO; 12];
     r.resize_stride(&[
-        65535.,65535.,1.,2.,
-        65535.,65535.,3.,4.,
+        // 65535.,65535.,1.,2.,
+        // 65535.,65535.,3.,4.,
+        fpN::from_f32(65535.), fpN::from_f32(65535.), fpN::from_f32(1.), fpN::from_f32(2.),
+        fpN::from_f32(65535.), fpN::from_f32(65535.), fpN::from_f32(3.), fpN::from_f32(4.),
     ].as_gray(), 4, dst.as_gray_mut()).unwrap();
-    assert_eq!(&dst, &[65535.; 12]);
+    assert_eq!(&dst, &[fpN::from_f32(65535.); 12]);
 }

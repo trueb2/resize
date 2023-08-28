@@ -15,7 +15,8 @@ edition = "2021"
 rust-version = "1.57"
 
 [features]
-default = ["rayon"]
+default = ["rayon", "fp16"]
+fp16 = ["half", "num-traits"]
 
 [dev-dependencies]
 png = "0.17.7"
@@ -23,6 +24,8 @@ png = "0.17.7"
 [dependencies]
 rgb = "0.8.36"
 rayon = { version = "1.7.0", optional = true }
+half = { version = "2.3.1", optional = true, features = ["num-traits"]}
+num-traits = { version = "0.2.16", optional = true }
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
